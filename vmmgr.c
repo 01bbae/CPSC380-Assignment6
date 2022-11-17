@@ -31,6 +31,11 @@ typedef struct TLBentry{
     uint8_t frameno;
 } tlbent;
 
+typedef struct ptEntry{
+    uint8_t frameno;
+    bool valid;
+} ptent;
+
 int main(int argc, char const *argv[])
 {
     FILE *fp;
@@ -52,27 +57,24 @@ int main(int argc, char const *argv[])
     char** physMem[totalFrames];
 
     //initialize backing store
-    int fd = open("BACKING STORE.bin", O_RDONLY);
-    char* backingStore = mmap(NULL, pageSize, PROT_READ, MAP_SHARED, fd, 0);
+    FILE* bs = fopen("BACKING_STORE.bin", "rb");
+    if (!bs){
+        perror("Error reading backing file.");
+        exit(EXIT_FAILURE);
+    }
+    char* backingStore = mmap(NULL, totalPhysMem, PROT_READ, MAP_SHARED, fileno(bs), 0);
+    for (int i = 0; i < totalPhysMem; ++i){
+        printf("%x",backingStore[i]);
+    }
+    printf("\n");
+    printf("%d\n",backingStore[66]);
 
     //initialize page table
-    uint8_t* pt[numInPageTable];
-    // for(int i = 0; i<numInPageTable; ++i){
-    //     bool repeat = true;
-    //     u_int8_t frameno;
-    //     // randomly order frame numbers in page table
-    //     while(repeat){
-    //         repeat = false;
-    //         frameno = rand() % totalFrames;
-    //         // check if it was used already
-    //         for(int j = 0; j < i; ++j){
-    //             if (pt[j] == frameno){
-    //                 repeat = true;
-    //             }
-    //         }
-    //     }
-    //     pt[i] = frameno;
-    // }
+   ptent* pt[numInPageTable];
+   for(int i = 0; i < numInPageTable; ++i){
+      ptent newPTent = { .valid = false };
+      pt[i] = &newPTent;
+   }
 
     fp = fopen("./addresses.txt", "r");
     if (fp == NULL){
@@ -92,6 +94,7 @@ int main(int argc, char const *argv[])
             perror("Error: offset exceeds page size");
             exit(EXIT_FAILURE);
         }
+	printf("%x\n", backingStore[66]);
         // search tlb for page hit
         uint8_t frameno; // translate pageno to frameno
         uint8_t offset = laddr.bf.offset; // offset is directly translated
@@ -107,18 +110,26 @@ int main(int argc, char const *argv[])
             printf("frameno not in tlb\n");
             pageMisses++;
             // acquire from page table
-            if (pt[laddr.bf.pageno] == NULL){
-                printf("FRAME DOES NOT EXIST IN PAGE TABLE");
+            if (!pt[laddr.bf.pageno]->valid){
+                printf("FRAME DOES NOT EXIST IN PAGE TABLE\n");
                 // frame does not exist in page table
                 // grab from backing store
                 // bring to physical memory and add to page table
-                physMem[laddr.bf.pageno] = backingStore[laddr.bf.pageno];
+                // printf("backing store: %s\n", backingStore[laddr.bf.pageno*8]);
+                char* page = "";
+                printf("%x", backingStore[laddr.bf.pageno]);
+                for (int i = laddr.bf.pageno; i < laddr.bf.pageno + laddr.bf.offset; ++i){
+                    printf("%x", backingStore[i]);
+                    strcat(page, &backingStore[i]);
+                }
+                printf("Page Contents: %s\n", page);
+                physMem[laddr.bf.pageno] = &page;
                 //update page table and tlb
                 frameno = laddr.bf.pageno;
-                pt[laddr.bf.pageno] = frameno;
+                pt[laddr.bf.pageno]->frameno = frameno;
+                printf("FRAME IS CREATED IN PAGE TABLE\n");
             }else{
-                //frame in page table
-                frameno = pt[laddr.bf.pageno];
+                //frame already in page table
             }
 
             // put page into tlb
@@ -148,7 +159,7 @@ int main(int argc, char const *argv[])
             printf("Logical Address: %d\n", addr);
             printf("Logical Address as Page Number and offset: %d + %d\n", laddr.bf.pageno, laddr.bf.offset);
             printf("Physical Address as Frame Number and offset: %d + %d\n", frameno, offset);
-            printf("Signed value at Physical Address: %s\n", (*(physMem[frameno]))[offset]);
+            printf("Signed value at Physical Address: %c\n", (*(physMem[frameno]))[offset]);
         }
     }
     printf("Statistics:\n");
